@@ -51,18 +51,20 @@ with open("configs.json", "r") as f:
     cfgs = json.load(f)
 
 results = []
-for i, cfg in enumerate(cfgs):
+for i, cfg in enumerate(cfgs[:250]):
     model = MLP(**cfg["model"]).cuda()
     x = torch.rand([cfg["batch_size"], cfg["model"]["input_dim"]]).cuda()
     y = model(x)
 
+    samples = 10
     monitor.begin_window("step")
-    model(x)
+    for _ in range(samples):
+        model(x)
     result = monitor.end_window("step")
     results.append({
         "config": cfg,
-        "time": result.time,
-        "energy": result.gpu_energy[0]
+        "time": result.time / samples,
+        "energy": result.gpu_energy[0] / samples
     })
 
     print(f"Done {i}")
