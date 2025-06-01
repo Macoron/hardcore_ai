@@ -1,0 +1,39 @@
+{
+    "gpus": {
+      "NVIDIA T4": {
+        "cuda_cores": 2560,
+        "base_frequency": "0.585 GHz",
+        "boost_frequency": "1.59 GHz",
+        "memory_bandwidth": "320 GB/s",
+        "memory_size": "16 GB",
+        "avg_price_per_hour": "$0.35"
+      },
+      "NVIDIA L4": {
+        "cuda_cores": 7424,
+        "base_frequency": "1.8 GHz",
+        "boost_frequency": "2.7 GHz",
+        "memory_bandwidth": "300 GB/s",
+        "memory_size": "24 GB",
+        "avg_price_per_hour": "$0.71"
+      }
+    },
+    "models": {
+        "600M parameters": {
+            "input_dim": 8899,
+            "output_dim": 4851,
+            "hidden_dim": 1902,
+            "num_layers": 171,
+            "activation_fn_name": "relu",
+            "batch_size": 7
+        },
+        "750M parameters": {
+          "input_dim": 8299,
+          "output_dim": 8179,
+          "hidden_dim": 2000,
+          "num_layers": 190,
+          "activation_fn_name": "relu",
+          "batch_size": 64
+      }
+    }
+  }
+  

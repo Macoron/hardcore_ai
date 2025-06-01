@@ -3,21 +3,18 @@ import json
 import random
 
 ACTIVATION_FUNCTIONS = {
-    'relu': nn.ReLU,
-    'tanh': nn.Tanh,
-    'sigmoid': nn.Sigmoid,
-    'leaky_relu': nn.LeakyReLU,
-    'elu': nn.ELU,
-    'gelu': nn.GELU,
-    'selu': nn.SELU
+    0: nn.ReLU,
+    1: nn.Tanh,
+    2: nn.Sigmoid,
+    3: nn.LeakyReLU,
 }
 
 def generate_random_config():
     while True:
-        hidden_dim = random.randint(128, 2048)
+        hidden_dim = random.randint(1, 2048)
         num_layers = random.randint(1, 200)
 
-        if 5e8 < hidden_dim * hidden_dim * num_layers < 1e9:
+        if 1e7 < hidden_dim * hidden_dim * num_layers < 1e9:
             break
 
 
@@ -27,8 +24,7 @@ def generate_random_config():
             "output_dim": random.randint(1, 10000),
             "hidden_dim": hidden_dim,
             "num_layers": num_layers,
-            #"activation_fn_name":  random.choice(list(ACTIVATION_FUNCTIONS.keys()))
-            "activation_fn_name": "relu"
+            "activation_fn_name":  random.choice(list(ACTIVATION_FUNCTIONS.keys()))
 
         },
         "batch_size": random.randint(1, 100),

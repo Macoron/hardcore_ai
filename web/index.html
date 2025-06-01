@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoInfer</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+</head>
+<body>
+    <main>
+        <h1>Eco Infer</h1>
+        <div class="container">
+            <div class="section">
+                <select class="dropdown" id="gpuSelect">
+                    <option value="" disabled selected>Select GPU</option>
+                </select>
+                <div class="benchmarks">
+                    <h2>Specifications</h2>
+                    <div id="gpuSpecs" style="display: none">
+                        <!-- GPU specs will be populated here -->
+                    </div>
+                    <div id="selectGpuPrompt" class="select-prompt">
+                        Please select a GPU to view specifications
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <select class="dropdown" id="modelSelect">
+                    <option value="" disabled selected>Select Model</option>
+                </select>
+                <div class="benchmarks">
+                    <h2>Model Parameters</h2>
+                    <div id="modelSpecs" class="editable-specs" style="display: none;">
+                        <div class="benchmark-item">
+                            <label for="input_dim">Input Dimension:</label>
+                            <input type="number" id="input_dim" name="input_dim" class="param-input">
+                        </div>
+                        <div class="benchmark-item">
+                            <label for="output_dim">Output Dimension:</label>
+                            <input type="number" id="output_dim" name="output_dim" class="param-input">
+                        </div>
+                        <div class="benchmark-item">
+                            <label for="hidden_dim">Hidden Dimension:</label>
+                            <input type="number" id="hidden_dim" name="hidden_dim" class="param-input" onchange="updateEstimation()">
+                        </div>
+                        <div class="benchmark-item">
+                            <label for="num_layers">Number of Layers:</label>
+                            <input type="number" id="num_layers" name="num_layers" class="param-input" onchange="updateEstimation()">
+                        </div>
+                        <div class="benchmark-item">
+                            <label for="activation_fn">Activation Function:</label>
+                            <select id="activation_fn" name="activation_fn" class="param-input">
+                                <option value="0">ReLU</option>
+                                <option value="1">Tanh</option>
+                                <option value="2">Sigmoid</option>
+                                <option value="3">LeakyReLU</option>
+                            </select>
+                        </div>
+                        <div class="benchmark-item">
+                            <label for="batch_size">Batch Size:</label>
+                            <input type="number" id="batch_size" name="batch_size" class="param-input">
+                        </div>
+                        <div class="benchmark-item estimation">
+                            <label>Estimated Parameters:</label>
+                            <span id="paramEstimation" class="estimation-value">0</span>
+                        </div>
+                    </div>
+                    <div id="selectModelPrompt" class="select-prompt">
+                        Please select a model to view and edit parameters
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <button id="calculateBtn" class="calculate-btn" style="display: none;">CALCULATE</button>
+
+        <div id="sustainabilitySection" class="sustainability-section" style="display: none;">
+            <h2 class="impact-title">Model Performance & Environmental Impact</h2>
+            <p class="impact-subtitle">Comprehensive metrics for your model configuration</p>
+            
+            <div class="impact-grid">
+                <div class="impact-card">
+                    <h3>Latency</h3>
+                    <img src="imgs/latency.png" alt="Latency Icon" class="impact-icon">
+                    <div class="impact-value">0</div>
+                    <div class="impact-unit">milliseconds</div>
+                    <div class="impact-detail">Inference Time</div>
+                </div>
+
+                <div class="impact-card">
+                    <h3>Memory Usage</h3>
+                    <img src="imgs/memery_usage.png" alt="Memory Usage Icon" class="impact-icon">
+                    <div class="impact-value">0</div>
+                    <div class="impact-unit">GB</div>
+                    <div class="impact-detail">VRAM Required</div>
+                </div>
+
+                <div class="impact-card">
+                    <h3>Energy per Inference</h3>
+                    <img src="imgs/energy_per_inference.png" alt="Energy Icon" class="impact-icon">
+                    <div class="impact-value">0</div>
+                    <div class="impact-unit">Joules</div>
+                    <div class="impact-detail">Per Inference</div>
+                </div>
+
+                <div class="impact-card">
+                    <h3>Yearly Energy</h3>
+                    <img src="imgs/power_yearly.png" alt="Yearly Energy Icon" class="impact-icon">
+                    <div class="impact-value">0</div>
+                    <div class="impact-unit">kWh</div>
+                    <div class="impact-detail">Annual Usage</div>
+                </div>
+
+                <div class="impact-card">
+                    <h3>Carbon Footprint</h3>
+                    <img src="imgs/carbon-footprint.png" alt="Carbon Icon" class="impact-icon">
+                    <div class="impact-value">0</div>
+                    <div class="impact-unit">kg CO₂</div>
+                    <div class="impact-detail">Per Year</div>
+                </div>
+
+                <div class="impact-card">
+                    <h3>Water Usage</h3>
+                    <img src="imgs/water_usage.png" alt="Water Usage Icon" class="impact-icon">
+                    <div class="impact-value">0</div>
+                    <div class="impact-unit">liters</div>
+                    <div class="impact-detail">Annual Usage</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let globalData = null;
+        let selectedGpu = null;
+        let selectedModel = null;
+        
+        // Create separate session objects for each GPU's models
+        let sessions = {
+            L4: {
+                time: null,
+                energy: null
+            },
+            T4: {
+                time: null,
+                energy: null
+            }
+        };
+
+        // Initialize ONNX models for both GPUs
+        async function initializeModels() {
+            try {
+                const options = {
+                    executionProviders: ['wasm'],
+                    logSeverityLevel: 0
+                };
+
+                // Load L4 models
+                sessions.L4.time = await ort.InferenceSession.create('models/L4_time.onnx', options);
+                sessions.L4.energy = await ort.InferenceSession.create('models/L4_energy.onnx', options);
+
+                // Load T4 models
+                sessions.T4.time = await ort.InferenceSession.create('models/T4_time.onnx', options);
+                sessions.T4.energy = await ort.InferenceSession.create('models/T4_energy.onnx', options);
+
+                console.log('All models loaded successfully');
+            } catch (error) {
+                console.error('Error loading models:', error);
+                document.getElementById('calculateBtn').disabled = true;
+                document.getElementById('calculateBtn').textContent = 'Models Not Available';
+            }
+        }
+
+        // Get current active sessions based on selected GPU
+        function getActiveSessions() {
+            if (!selectedGpu) return null;
+            
+            // Extract GPU name from the full name (assuming names contain "L4" or "T4")
+            const gpuType = selectedGpu.name.includes('L4') ? 'L4' : 
+                           selectedGpu.name.includes('T4') ? 'T4' : null;
+            
+            if (!gpuType) {
+                console.error('Unsupported GPU type:', selectedGpu.name);
+                return null;
+            }
+
+            return sessions[gpuType];
+        }
+
+        function validateInputs() {
+            const inputs = [
+                'input_dim',
+                'output_dim',
+                'hidden_dim',
+                'num_layers',
+                'batch_size'
+            ];
+
+            let hasNegative = false;
+
+            inputs.forEach(id => {
+                const input = document.getElementById(id);
+                const value = parseInt(input.value) || 0;
+                
+                if (value < 0) {
+                    input.classList.add('negative');
+                    hasNegative = true;
+                } else {
+                    input.classList.remove('negative');
+                }
+            });
+
+            const calculateBtn = document.getElementById('calculateBtn');
+            calculateBtn.disabled = hasNegative;
+
+            return !hasNegative;
+        }
+
+        // Prepare input tensor for models
+        function prepareInput() {
+            if (!validateInputs()) {
+                throw new Error('Invalid input values detected');
+            }
+
+            const input_dim = parseInt(document.getElementById('input_dim').value) || 0;
+            const output_dim = parseInt(document.getElementById('output_dim').value) || 0;
+            const hidden_dim = parseInt(document.getElementById('hidden_dim').value) || 0;
+            const num_layers = parseInt(document.getElementById('num_layers').value) || 0;
+            const batch_size = parseInt(document.getElementById('batch_size').value) || 0;
+            const activation_fn = parseInt(document.getElementById('activation_fn').value) || 0;
+
+            console.log('Input values:', { 
+                input_dim, 
+                output_dim, 
+                hidden_dim, 
+                num_layers, 
+                batch_size,
+                activation_fn 
+            });
+
+            const inputData = new Float32Array([
+                input_dim,
+                output_dim,
+                hidden_dim,
+                num_layers,
+                batch_size,
+                activation_fn
+            ]);
+
+            console.log('Input tensor:', Array.from(inputData));
+            return new ort.Tensor('float32', inputData, [1, 6]);
+        }
+
+        // Run inference
+        async function runInference() {
+            try {
+                const inputTensor = prepareInput();
+                const activeSessions = getActiveSessions();
+
+                if (!activeSessions) {
+                    throw new Error('No models available for selected GPU');
+                }
+                
+                // Run time prediction
+                const timeResults = await activeSessions.time.run({ input: inputTensor });
+                console.log('Time Results:', timeResults);
+                const timePrediction = Array.from(timeResults.variable.data)[0];
+                
+                // Run energy prediction
+                const energyResults = await activeSessions.energy.run({ input: inputTensor });
+                console.log('Energy Results:', energyResults);
+                const energyPrediction = Array.from(energyResults.variable.data)[0];
+
+                console.log('Predictions:', { timePrediction, energyPrediction });
+
+                // Calculate memory usage
+                const memoryUsage = calculateMemoryUsage();
+                
+                // Energy in Joules (no conversion needed as the model outputs in Joules)
+                const energyPerInference = Math.round(energyPrediction * 100) / 100;
+
+                // Calculate yearly projections (assuming 1M inferences per year)
+                const inferencesPerYear = 1000000;
+                const yearlyEnergy = calculateYearlyEnergy(energyPerInference, inferencesPerYear);
+                const carbonFootprint = calculateCarbonFootprint(yearlyEnergy);
+                const waterUsage = calculateWaterUsage(yearlyEnergy);
+
+                // Convert seconds to milliseconds for latency
+                const latencyMs = Math.round(timePrediction * 1000);
+
+                // Update all metrics
+                document.querySelector('#sustainabilitySection').style.display = 'block';
+                const metricCards = document.querySelectorAll('#sustainabilitySection .impact-card');
+                
+                metricCards[0].querySelector('.impact-value').textContent = formatNumber(latencyMs);
+                metricCards[1].querySelector('.impact-value').textContent = formatNumber(memoryUsage);
+                metricCards[2].querySelector('.impact-value').textContent = formatNumber(energyPerInference);
+                metricCards[3].querySelector('.impact-value').textContent = formatNumber(yearlyEnergy);
+                metricCards[4].querySelector('.impact-value').textContent = formatNumber(carbonFootprint);
+                metricCards[5].querySelector('.impact-value').textContent = formatNumber(waterUsage);
+
+            } catch (error) {
+                console.error('Error running inference:', error);
+                document.querySelectorAll('.impact-value').forEach(el => {
+                    el.textContent = 'Error';
+                });
+            }
+        }
+
+        // Calculate memory usage based on model parameters
+        function calculateMemoryUsage() {
+            const input_dim = parseInt(document.getElementById('input_dim').value);
+            const output_dim = parseInt(document.getElementById('output_dim').value);
+            const hidden_dim = parseInt(document.getElementById('hidden_dim').value);
+            const num_layers = parseInt(document.getElementById('num_layers').value);
+            const batch_size = parseInt(document.getElementById('batch_size').value);
+
+            // Calculate model parameters
+            const params = hidden_dim * hidden_dim * num_layers;
+            
+            // Estimate memory usage (parameters + activations + overhead)
+            const paramMemory = params * 4 / (1024 * 1024 * 1024); // Convert to GB
+            const activationMemory = (input_dim + hidden_dim + output_dim) * batch_size * 4 / (1024 * 1024 * 1024);
+            const overhead = 0.5; // 500MB overhead for framework and system
+
+            return Math.round((paramMemory * 10)) / 10;
+        }
+
+        // Calculate yearly energy consumption
+        function calculateYearlyEnergy(energyJoules, inferencesPerYear) {
+            // Convert Joules to kWh
+            const energyPerInferenceKWh = energyJoules / 3600000; // Joules to kWh
+            const yearlyKWh = energyPerInferenceKWh * inferencesPerYear;
+            return Math.round(yearlyKWh * 100) / 100;
+        }
+
+        // Calculate carbon footprint based on energy consumption
+        function calculateCarbonFootprint(yearlyKWh) {
+            // Carbon intensity of electricity (kg CO₂ per kWh)
+            const carbonIntensity = 0.4; // Germany's average
+            return Math.round(yearlyKWh * carbonIntensity * 100) / 100;
+        }
+
+        // Calculate water usage based on energy consumption
+        function calculateWaterUsage(yearlyKWh) {
+            // Water consumption per kWh (liters)
+            const waterPerKWh = 1.5;
+            return Math.round(yearlyKWh * waterPerKWh * 100) / 100;
+        }
+
+        // Format number with commas
+        function formatNumber(num) {
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+
+        function updateEstimation() {
+            const hiddenDim = parseInt(document.getElementById('hidden_dim').value) || 0;
+            const numLayers = parseInt(document.getElementById('num_layers').value) || 0;
+            
+            const estimation = hiddenDim * hiddenDim * numLayers;
+            document.getElementById('paramEstimation').textContent = formatNumber(estimation);
+        }
+
+        function checkSelections() {
+            const calculateBtn = document.getElementById('calculateBtn');
+            if (selectedGpu && selectedModel) {
+                calculateBtn.style.display = 'block';
+            } else {
+                calculateBtn.style.display = 'none';
+                document.getElementById('sustainabilitySection').style.display = 'none';
+            }
+        }
+
+        async function loadData() {
+            try {
+                await initializeModels();
+                const response = await fetch('data.json');
+                globalData = await response.json();
+                
+                // Add input validation listeners
+                const inputs = document.querySelectorAll('input[type="number"]');
+                inputs.forEach(input => {
+                    input.addEventListener('input', validateInputs);
+                });
+
+                const gpuSelect = document.getElementById('gpuSelect');
+                const modelSelect = document.getElementById('modelSelect');
+                
+                // Populate GPU dropdown
+                Object.keys(globalData.gpus).forEach(gpu => {
+                    const option = document.createElement('option');
+                    option.value = gpu;
+                    option.textContent = gpu;
+                    gpuSelect.appendChild(option);
+                });
+
+                // Populate Model dropdown
+                Object.keys(globalData.models).forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model;
+                    modelSelect.appendChild(option);
+                });
+
+                // Update GPU event listener
+                gpuSelect.addEventListener('change', () => {
+                    const gpuName = gpuSelect.value;
+                    selectedGpu = {
+                        ...globalData.gpus[gpuName],
+                        name: gpuName // Add name to the GPU object
+                    };
+                    const gpuSpecs = document.getElementById('gpuSpecs');
+                    const selectGpuPrompt = document.getElementById('selectGpuPrompt');
+
+                    // Show specs and hide prompt
+                    gpuSpecs.style.display = 'block';
+                    selectGpuPrompt.style.display = 'none';
+
+                    gpuSpecs.innerHTML = `
+                        <div class="benchmark-item">
+                            <span class="checkmark">✓</span>
+                            <span>CUDA Cores: ${selectedGpu.cuda_cores.toLocaleString()}</span>
+                        </div>
+                        <div class="benchmark-item">
+                            <span class="checkmark">✓</span>
+                            <span>Base Frequency: ${selectedGpu.base_frequency}</span>
+                        </div>
+                        <div class="benchmark-item">
+                            <span class="checkmark">✓</span>
+                            <span>Boost Frequency: ${selectedGpu.boost_frequency}</span>
+                        </div>
+                        <div class="benchmark-item">
+                            <span class="checkmark">✓</span>
+                            <span>Memory Bandwidth: ${selectedGpu.memory_bandwidth}</span>
+                        </div>
+                        <div class="benchmark-item">
+                            <span class="checkmark">✓</span>
+                            <span>Memory Size: ${selectedGpu.memory_size}</span>
+                        </div>
+                        <div class="benchmark-item">
+                            <span class="checkmark">✓</span>
+                            <span>Average Price/Hour: ${selectedGpu.avg_price_per_hour}</span>
+                        </div>
+                    `;
+                    
+                    checkSelections();
+                });
+
+                // Add model event listener
+                modelSelect.addEventListener('change', () => {
+                    selectedModel = globalData.models[modelSelect.value];
+                    if (!selectedModel) return;
+
+                    // Show parameters and hide prompt
+                    document.getElementById('modelSpecs').style.display = 'block';
+                    document.getElementById('selectModelPrompt').style.display = 'none';
+
+                    // Update input fields with values
+                    document.getElementById('input_dim').value = selectedModel.input_dim;
+                    document.getElementById('output_dim').value = selectedModel.output_dim;
+                    document.getElementById('hidden_dim').value = selectedModel.hidden_dim;
+                    document.getElementById('num_layers').value = selectedModel.num_layers;
+                    document.getElementById('batch_size').value = selectedModel.batch_size;
+                    document.getElementById('activation_fn').value = selectedModel.activation_fn || 0;
+                    
+                    // Validate inputs after setting values
+                    validateInputs();
+                    
+                    // Update estimation
+                    updateEstimation();
+                    checkSelections();
+                });
+
+                // Update calculate button listener
+                document.getElementById('calculateBtn').addEventListener('click', async () => {
+                    document.getElementById('sustainabilitySection').style.display = 'block';
+                    await runInference(); // Run model inference when calculate is clicked
+                });
+
+                // Add input event listeners for real-time estimation updates
+                document.getElementById('hidden_dim').addEventListener('input', updateEstimation);
+                document.getElementById('num_layers').addEventListener('input', updateEstimation);
+
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('gpuSpecs').innerHTML = 
+                    '<div class="error">Error loading data. Please try again later.</div>';
+            }
+        }
+
+        loadData();
+    </script>
+
+    <style>
+        .editable-specs .benchmark-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.3rem 0;
+            margin-bottom: 0.2rem;
+        }
+
+        .param-input {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            padding: 0.4rem;
+            color: white;
+            width: 120px;
+            font-size: 0.9rem;
+        }
+
+        .param-input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        label {
+            color: rgba(255, 255, 255, 0.9);
+            margin-right: 1rem;
+            font-size: 0.9rem;
+        }
+
+        select.param-input {
+            cursor: pointer;
+        }
+
+        .estimation {
+            margin-top: 0.8rem;
+            padding: 0.6rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .estimation-value {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .benchmarks {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .section {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 0 0.5rem;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+            margin: 0 0 1rem 0;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .container {
+            display: flex;
+            gap: 1.5rem;
+            justify-content: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .dropdown {
+            width: 100%;
+            padding: 0.8rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: white;
+            font-size: 0.9rem;
+            cursor: pointer;
+            margin-bottom: 1rem;
+        }
+
+        .dropdown:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        body {
+            background-color: #1a1332;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+        }
+
+        main {
+            width: 100%;
+            padding: 2rem;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 3rem;
+            color: white;
+        }
+
+        .select-prompt {
+            text-align: center;
+            color: rgba(255, 255, 255, 0.6);
+            padding: 2rem;
+            font-style: italic;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 6px;
+        }
+
+        .calculate-btn {
+            display: block;
+            background: #90EE90;
+            color: #1a1332;
+            border: none;
+            border-radius: 8px;
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 2rem auto;
+            transition: background-color 0.3s, transform 0.2s;
+            width: 200px;
+        }
+
+        .calculate-btn:hover {
+            background: #7FDB7F;
+            transform: translateY(-2px);
+        }
+
+        .sustainability-section {
+            margin-top: 3rem;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .impact-title {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: white;
+        }
+
+        .impact-subtitle {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1.1rem;
+            margin-bottom: 3rem;
+        }
+
+        .impact-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .impact-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .impact-card h3 {
+            color: white;
+            font-size: 1.3rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .impact-icon {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1.5rem;
+        }
+
+        .impact-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #90EE90;
+            margin-bottom: 0.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .impact-unit {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+
+        .impact-detail {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            .impact-grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+                padding: 0 1rem;
+            }
+        }
+
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .param-input:invalid {
+            border-color: #ff6b6b;
+        }
+
+        .param-input.negative {
+            border-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        .calculate-btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+    </style>
+</body>
+</html> 
